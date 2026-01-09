@@ -35,7 +35,6 @@ def search_github_repo(search_term):
     headers = {"Accept": "application/vnd.github.v3+json"}
     params = {
         "q": search_term,
-        "sort": "stars",
         "order": "desc"
     }
     try:
