@@ -1,0 +1,15 @@
+.git
+.gitignore
+README.md
+README_zh.md
+output/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.so
+*.egg
+*.egg-info/
+dist/
+build/
