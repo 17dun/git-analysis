@@ -3,17 +3,22 @@ import os
 import requests
 import base64
 import markdown
+import re
 from bs4 import BeautifulSoup
 
 def clean_markdown_to_text(md_content):
     """
     Converts Markdown content to clean plain text, removing HTML tags and other formatting.
+    同时应用内容精简策略以减少最终文本体积。
     """
+    # 第一步：精简 Markdown 内容
+    md_content = simplify_readme_content(md_content)
+
     try:
         html = markdown.markdown(md_content)
     except Exception as e:
         print(f"警告：Markdown转换HTML时出错: {e}", file=sys.stderr)
-        html = md_content 
+        html = md_content
 
     try:
         soup = BeautifulSoup(html, "html.parser")
@@ -25,6 +30,115 @@ def clean_markdown_to_text(md_content):
     except Exception as e:
         print(f"警告：HTML清洗时出错: {e}", file=sys.stderr)
         return md_content
+
+def simplify_readme_content(md_content):
+    """
+    对 README 内容应用精简策略，去除冗余和不太重要的内容。
+    """
+    lines = md_content.split('\n')
+    result_lines = []
+    skip_until_next_section = False
+    in_important_section = False
+    section_depth = 0
+    kept_sections = set()
+
+    # 定义要保留的章节关键词（优先级从高到低）
+    important_sections = [
+        'quick start', 'getting started', 'installation', 'install', '介绍', '简介',
+        'feature', '特性', '功能', 'overview', '概述'
+    ]
+
+    # 定义要跳过的章节关键词
+    skip_sections = [
+        'news', 'release', 'changelog', 'history', 'version',
+        'faq', 'question', 'troubleshooting', 'star history',
+        'contribution', 'contributing', 'license', 'acknowledgement',
+        '新闻', '发布', '版本', '常见问题', '贡献', '许可', '致谢'
+    ]
+
+    # 标记是否已经保留了特性列表（避免重复）
+    feature_kept = False
+
+    for i, line in enumerate(lines):
+        # 检测章节标题
+        if line.startswith('#'):
+            # 重置跳过标记
+            skip_until_next_section = False
+
+            # 获取章节标题（去除 # 号）
+            section_title = line.lstrip('#').strip().lower()
+
+            # 判断是否是要跳过的章节
+            if any(skip_word in section_title for skip_word in skip_sections):
+                skip_until_next_section = True
+                continue
+
+            # 判断是否是重要章节（只保留前3个重要章节）
+            if any(imp_word in section_title for imp_word in important_sections):
+                if len([s for s in kept_sections if any(imp_word in s.lower() for imp_word in important_sections)]) < 3:
+                    kept_sections.add(section_title)
+                    in_important_section = True
+                else:
+                    skip_until_next_section = True
+                    continue
+
+            # 检测特性列表（只保留第一个）
+            if 'feature' in section_title or '特性' in section_title:
+                if feature_kept:
+                    skip_until_next_section = True
+                    continue
+                else:
+                    feature_kept = True
+
+        # 跳过被标记的章节
+        if skip_until_next_section:
+            continue
+
+        # 去除 badge 徽章行
+        if re.match(r'^\s*\[!\[.*?\]\(.*?\)\]', line):
+            continue
+
+        # 去除多语言链接行（如 🇨🇳 中文 · 🇯🇵 日本語）
+        if re.search(r'🇨🇳|🇯🇵|🇪🇸|🇫🇷|🇸🇦|🇷🇺|🇮🇳|🇵🇹', line):
+            continue
+
+        # 去除纯链接行（导航用）
+        if re.match(r'^\s*\[.*?\]\(.*?\)\s*·\s*\[.*?\]\(.*?\)', line):
+            continue
+
+        # 去除代码块中的长代码示例（超过20行的代码块）
+        if line.strip().startswith('```'):
+            # 检查代码块长度
+            code_start = i
+            code_end = i
+            for j in range(i + 1, len(lines)):
+                if lines[j].strip().startswith('```'):
+                    code_end = j
+                    break
+            # 如果代码块超过15行，跳过
+            if code_end - code_start > 15:
+                skip_until_next_section = True
+                # 添加简短说明
+                result_lines.append('(代码示例已省略)')
+                continue
+
+        # 去除表格中的环境变量配置等详细表格（超过5行的表格）
+        if line.startswith('|') and i > 0:
+            table_start = i
+            table_end = i
+            for j in range(i, len(lines)):
+                if not lines[j].startswith('|'):
+                    table_end = j - 1
+                    break
+            # 如果表格超过5行，跳过
+            if table_end - table_start > 5:
+                skip_until_next_section = True
+                continue
+
+        # 保留该行
+        result_lines.append(line)
+
+    return '\n'.join(result_lines)
 
 def search_github_repo(search_term):
     """
